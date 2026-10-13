@@ -317,7 +317,7 @@ export async function createChatMessageSubscription(
 ) {
     const callbackUrl =
         env.TWITCH_EVENTSUB_CALLBACK_URL ??
-        "https://api-beta.jevent.julot.fr/api/twitch/eventsub";
+        "https://api.jevent.julot.fr/api/twitch/eventsub";
 
     const existing =
         await env.DB.prepare(`

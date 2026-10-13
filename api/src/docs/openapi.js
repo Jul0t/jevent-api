@@ -10,7 +10,7 @@ export const openApiDocument = {
 
   servers: [
     {
-      url: "https://api-beta.jevent.julot.fr",
+      url: "https://api.jevent.julot.fr",
       description: "API bêta"
     }
   ],
