@@ -199,6 +199,10 @@ import {
   deleteDonationAlertVariantMedia
 } from "./overlays/donation-alerts.js";
 
+import {
+  handleDocumentation
+} from "./docs/documentation.js";
+
 export {
   RaffleTimer
 } from "./raffles/timer.js";
@@ -1451,6 +1455,14 @@ async function route(request, env) {
 
 export default {
   async fetch(request, env, ctx) {
+
+    const documentationResponse =
+      handleDocumentation(request);
+
+    if (documentationResponse) {
+      return documentationResponse;
+    }
+
     if (request.method === "OPTIONS") {
       return handleOptions(request, env);
     }
