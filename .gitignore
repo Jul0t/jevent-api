@@ -1,3 +1,6 @@
-/node_modules
-.env
-.dev.vars
+/api/.wrangler
+/api/node_modules
+site/
+jevent-website.code-workspace
+api/wrangler.jsonc
+api/jevent-website.lnk
