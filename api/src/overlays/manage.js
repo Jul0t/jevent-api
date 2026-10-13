@@ -11,6 +11,14 @@ import {
   resolveCreatorAccess
 } from "../creators/panel.js";
 
+import {
+  getPublicRaffleOverlay
+} from "../raffles/manage.js";
+
+import {
+  getPublicDonationAlertRules
+} from "./donation-alerts.js";
+
 const OVERLAY_TYPES =
   new Set([
     "raffle",
@@ -70,7 +78,7 @@ function parseSettings(value) {
 
     return (
       settings &&
-      typeof settings === "object"
+        typeof settings === "object"
         ? settings
         : {}
     );
@@ -85,7 +93,7 @@ function mapOverlay(
 ) {
   const overlayPath =
     OVERLAY_PATHS[
-      overlay.overlay_type
+    overlay.overlay_type
     ];
 
   const siteUrl =
@@ -281,8 +289,7 @@ export async function createCreatorOverlay(
   }
 
   const publicId =
-    `overlay_${
-      generateRandomToken(12)
+    `overlay_${generateRandomToken(12)
     }`;
 
   const accessToken =
@@ -434,5 +441,166 @@ export async function rotateCreatorOverlayToken(
         env,
         overlay
       )
+  });
+}
+
+export async function getPublicOverlay(
+  request,
+  env,
+  rawAccessToken
+) {
+
+  const accessToken =
+    String(
+      rawAccessToken || ""
+    ).trim();
+
+  if (
+    !accessToken ||
+    accessToken.length < 20
+  ) {
+
+    let raffle = null;
+
+    if (
+      overlay.overlay_type ===
+      "raffle"
+    ) {
+      raffle =
+        await getPublicRaffleOverlay(
+          env,
+          overlay.creator_id
+        );
+    }
+
+    return json(
+      {
+        error:
+          "Overlay introuvable."
+      },
+      404
+    );
+  }
+
+  const overlay =
+    await env.DB.prepare(`
+      SELECT
+        creator_overlays.public_id,
+        creator_overlays.overlay_type,
+        creator_overlays.enabled,
+        creator_overlays.settings_json,
+        creator_overlays.created_at,
+        creator_overlays.updated_at,
+
+        creators.id
+          AS creator_id,
+
+        creators.public_id
+          AS creator_public_id,
+
+        creators.slug
+          AS creator_slug,
+
+        creators.twitch_display_name
+          AS creator_display_name,
+
+        creators.twitch_profile_image_url
+          AS creator_profile_image_url
+
+      FROM creator_overlays
+
+      INNER JOIN creators
+        ON creators.id =
+          creator_overlays.creator_id
+
+      WHERE creator_overlays.access_token = ?
+        AND creator_overlays.enabled = 1
+        AND creators.active = 1
+        AND creators.archived = 0
+
+      LIMIT 1
+    `)
+      .bind(accessToken)
+      .first();
+
+  if (!overlay) {
+    return json(
+      {
+        error:
+          "Overlay introuvable."
+      },
+      404
+    );
+  }
+
+  let donationAlerts = null;
+  let raffle = null;
+
+  if (
+    overlay.overlay_type ===
+    "donations"
+  ) {
+    donationAlerts = {
+      rules:
+        await getPublicDonationAlertRules(
+          request,
+          env,
+          Number(overlay.creator_id),
+          accessToken
+        )
+    };
+  }
+
+  if (
+    overlay.overlay_type ===
+    "raffle"
+  ) {
+    raffle =
+      await getPublicRaffleOverlay(
+        env,
+        Number(overlay.creator_id)
+      );
+  }
+
+  return json({
+    overlay: {
+      publicId:
+        overlay.public_id,
+
+      overlayType:
+        overlay.overlay_type,
+
+      enabled:
+        Boolean(overlay.enabled),
+
+      settings:
+        parseSettings(
+          overlay.settings_json
+        ),
+
+      donationAlerts,
+
+      raffle,
+
+      creator: {
+        publicId:
+          overlay.creator_public_id,
+
+        slug:
+          overlay.creator_slug,
+
+        displayName:
+          overlay.creator_display_name,
+
+        profileImageUrl:
+          overlay.creator_profile_image_url
+      },
+
+      createdAt:
+        overlay.created_at,
+
+      updatedAt:
+        overlay.updated_at
+    }
   });
 }

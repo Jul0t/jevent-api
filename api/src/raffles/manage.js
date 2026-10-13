@@ -10,6 +10,10 @@ import {
   json
 } from "../shared/responses.js";
 
+import {
+  syncStreamlabsCharityDonations
+} from "../interactions/streamlabs-donations.js";
+
 const RAFFLE_METHODS =
   new Set([
     "ticket_per_euro",
@@ -64,6 +68,42 @@ async function requireRaffleAccess(
   }
 
   return access;
+}
+
+const LIVE_DONATION_SYNC_INTERVAL_MS = 5000;
+
+let liveDonationSyncAt = 0;
+let liveDonationSyncPromise = null;
+
+async function refreshLiveDonations(env) {
+  if (liveDonationSyncPromise) {
+    return liveDonationSyncPromise;
+  }
+
+  if (
+    Date.now() - liveDonationSyncAt <
+    LIVE_DONATION_SYNC_INTERVAL_MS
+  ) {
+    return null;
+  }
+
+  liveDonationSyncAt = Date.now();
+
+  liveDonationSyncPromise =
+    syncStreamlabsCharityDonations(env)
+      .catch(error => {
+        console.error(
+          "[Tombola] Synchronisation des dons impossible :",
+          error
+        );
+
+        return null;
+      })
+      .finally(() => {
+        liveDonationSyncPromise = null;
+      });
+
+  return liveDonationSyncPromise;
 }
 
 function cleanText(
@@ -554,6 +594,8 @@ export async function listCreatorRaffles(
   if (!access.allowed) {
     return access.response;
   }
+
+  await refreshLiveDonations(env);
 
   await refreshRaffleStatuses(
     env,
@@ -1247,57 +1289,58 @@ export async function drawCreatorRaffleWinner(
   try {
     await env.DB.batch([
       env.DB.prepare(`
-        INSERT INTO raffle_winners (
-          raffle_id,
-          raffle_entry_id,
-          participant_key,
-          donor_name,
-          user_id,
-          selected_by_user_id,
-          selected_at
-        )
-
-        VALUES (
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          CURRENT_TIMESTAMP
-        )
-      `)
+    INSERT INTO raffle_winners (
+      raffle_id,
+      raffle_entry_id,
+      participant_key,
+      donor_name,
+      user_id,
+      selected_by_user_id,
+      selected_at
+    )
+    VALUES (
+      ?,
+      ?,
+      ?,
+      ?,
+      ?,
+      ?,
+      CURRENT_TIMESTAMP
+    )
+  `)
         .bind(
           Number(raffle.id),
           Number(selectedEntry.id),
-          selectedEntry
-            .participant_key,
-          selectedEntry.donor_name ||
-          null,
+          selectedEntry.participant_key,
+          selectedEntry.donor_name || null,
+
           selectedEntry.user_id
-            ? Number(
-              selectedEntry.user_id
-            )
+            ? Number(selectedEntry.user_id)
             : null,
-          Number(access.user.id)
+
+          Number(
+            raffle.created_by_user_id
+          )
         ),
 
       env.DB.prepare(`
-        UPDATE creator_raffles
+    UPDATE creator_raffles
 
-        SET
-          status = 'completed',
-          completed_at =
-            CURRENT_TIMESTAMP,
-          updated_at =
-            CURRENT_TIMESTAMP
+    SET
+      status = 'completed',
+      completed_at =
+        CURRENT_TIMESTAMP,
+      updated_at =
+        CURRENT_TIMESTAMP
 
-        WHERE id = ?
-          AND status != 'completed'
-          AND status != 'cancelled'
-      `)
+WHERE id = ?
+  AND status != 'completed'
+  AND status != 'cancelled'
+
+  `)
         .bind(raffle.id)
     ]);
+
   } catch (error) {
     console.error(
       "Tirage impossible :",
@@ -1355,7 +1398,9 @@ async function selectAutomaticRaffleWinner(
 
         ORDER BY id ASC
       `)
-        .bind(raffle.id)
+        .bind(
+          Number(raffle.id)
+        )
         .all();
 
     const entries =
@@ -1365,7 +1410,9 @@ async function selectAutomaticRaffleWinner(
       entries.reduce(
         (total, entry) =>
           total +
-          Number(entry.ticket_count),
+          Number(
+            entry.ticket_count ?? 0
+          ),
         0
       );
 
@@ -1381,10 +1428,13 @@ async function selectAutomaticRaffleWinner(
     let cursor = 0;
 
     for (const entry of entries) {
-      cursor +=
-        Number(entry.ticket_count);
+      cursor += Number(
+        entry.ticket_count ?? 0
+      );
 
-      if (winningTicket <= cursor) {
+      if (
+        winningTicket <= cursor
+      ) {
         return entry;
       }
     }
@@ -1416,20 +1466,24 @@ async function selectAutomaticRaffleWinner(
       ORDER BY
         total_amount_cents DESC
     `)
-      .bind(raffle.id)
+      .bind(
+        Number(raffle.id)
+      )
       .all();
 
   const participants =
     result.results ?? [];
 
-  if (participants.length === 0) {
+  if (
+    participants.length === 0
+  ) {
     return null;
   }
 
   const highestAmount =
     Number(
       participants[0]
-        .total_amount_cents
+        .total_amount_cents ?? 0
     );
 
   const tiedParticipants =
@@ -1437,9 +1491,15 @@ async function selectAutomaticRaffleWinner(
       participant =>
         Number(
           participant
-            .total_amount_cents
+            .total_amount_cents ?? 0
         ) === highestAmount
     );
+
+  if (
+    tiedParticipants.length === 0
+  ) {
+    return null;
+  }
 
   return tiedParticipants[
     secureRandomInteger(
@@ -1452,10 +1512,72 @@ async function drawAutomaticRaffle(
   env,
   raffle
 ) {
+  /*
+   * On ajoute les dons qui ne seraient pas
+   * encore présents dans raffle_entries.
+   */
   await synchronizeRaffleEntries(
     env,
     raffle
   );
+
+  /*
+   * Si un gagnant existe déjà, on répare
+   * simplement le statut de la tombola.
+   */
+  const existingWinner =
+    await env.DB.prepare(`
+      SELECT
+        raffle_entry_id,
+        participant_key,
+        donor_name,
+        user_id,
+        selected_at
+
+      FROM raffle_winners
+
+      WHERE raffle_id = ?
+
+      LIMIT 1
+    `)
+      .bind(
+        Number(raffle.id)
+      )
+      .first();
+
+  if (existingWinner) {
+    await env.DB.prepare(`
+      UPDATE creator_raffles
+
+      SET
+        status = 'completed',
+
+        completed_at =
+          COALESCE(
+            completed_at,
+            CURRENT_TIMESTAMP
+          ),
+
+        updated_at =
+          CURRENT_TIMESTAMP
+
+      WHERE id = ?
+        AND status != 'cancelled'
+    `)
+      .bind(
+        Number(raffle.id)
+      )
+      .run();
+
+    return {
+      completed: true,
+      alreadyCompleted: true,
+      raffleId:
+        Number(raffle.id),
+      winner:
+        existingWinner
+    };
+  }
 
   const selectedEntry =
     await selectAutomaticRaffleWinner(
@@ -1464,38 +1586,61 @@ async function drawAutomaticRaffle(
     );
 
   if (!selectedEntry) {
+    /*
+     * On laisse la tombola en attente.
+     * Le prochain passage du système
+     * réessaiera après synchronisation
+     * des dons.
+     */
     await env.DB.prepare(`
-    UPDATE creator_raffles
+      UPDATE creator_raffles
 
-    SET
-      status = 'cancelled',
-      updated_at =
-        CURRENT_TIMESTAMP
+      SET
+        status = 'drawing',
+        updated_at =
+          CURRENT_TIMESTAMP
 
-    WHERE id = ?
-      AND draw_mode =
-        'automatic'
-
-      AND status NOT IN (
-        'completed',
-        'cancelled'
-      )
-  `)
+      WHERE id = ?
+        AND status != 'completed'
+        AND status != 'cancelled'
+    `)
       .bind(
-        raffle.id
+        Number(raffle.id)
       )
       .run();
 
     console.log(
-      `[Tombola] ${raffle.public_id} annulée automatiquement : aucun participant.`
+      `[Tombola] Aucun participant pour ${raffle.public_id}.`
     );
 
-    return true;
+    return {
+      completed: false,
+      raffleId:
+        Number(raffle.id),
+      reason:
+        "no_participant"
+    };
+  }
+
+  const selectedByUserId =
+    Number(
+      raffle.created_by_user_id
+    );
+
+  if (
+    !Number.isInteger(
+      selectedByUserId
+    ) ||
+    selectedByUserId <= 0
+  ) {
+    throw new Error(
+      "La tombola ne possède pas de créateur valide."
+    );
   }
 
   await env.DB.batch([
     env.DB.prepare(`
-      INSERT OR IGNORE INTO raffle_winners (
+      INSERT INTO raffle_winners (
         raffle_id,
         raffle_entry_id,
         participant_key,
@@ -1504,26 +1649,34 @@ async function drawAutomaticRaffle(
         selected_by_user_id,
         selected_at
       )
+
       VALUES (
         ?,
         ?,
         ?,
         ?,
         ?,
-        NULL,
+        ?,
         CURRENT_TIMESTAMP
       )
     `)
       .bind(
         Number(raffle.id),
         Number(selectedEntry.id),
-        selectedEntry.participant_key,
-        selectedEntry.donor_name || null,
+
+        selectedEntry
+          .participant_key,
+
+        selectedEntry
+          .donor_name || null,
+
         selectedEntry.user_id
           ? Number(
             selectedEntry.user_id
           )
-          : null
+          : null,
+
+        selectedByUserId
       ),
 
     env.DB.prepare(`
@@ -1531,45 +1684,87 @@ async function drawAutomaticRaffle(
 
       SET
         status = 'completed',
+
         completed_at =
-          CURRENT_TIMESTAMP,
+          COALESCE(
+            completed_at,
+            CURRENT_TIMESTAMP
+          ),
+
         updated_at =
           CURRENT_TIMESTAMP
 
       WHERE id = ?
         AND draw_mode = 'automatic'
-        AND status != 'completed'
         AND status != 'cancelled'
     `)
-      .bind(raffle.id)
+      .bind(
+        Number(raffle.id)
+      )
   ]);
 
   console.log(
-    `[Tombola] Tirage automatique terminé : ${raffle.public_id}.`
+    `[Tombola] Gagnant automatique enregistré pour ${raffle.public_id} :`,
+    selectedEntry.participant_key
   );
 
-  return true;
+  return {
+    completed: true,
+    alreadyCompleted: false,
+
+    raffleId:
+      Number(raffle.id),
+
+    winner:
+      selectedEntry
+  };
 }
 
 export async function processAutomaticRaffles(
   env
 ) {
+  /*
+   * La requête récupère également les anciennes
+   * tombolas marquées "completed" sans gagnant.
+   * Cela permet de réparer les tirages cassés.
+   */
   const result =
     await env.DB.prepare(`
-      SELECT *
+      SELECT raffles.*
+
       FROM creator_raffles
+        AS raffles
 
-      WHERE draw_mode = 'automatic'
+      WHERE raffles.draw_mode =
+        'automatic'
 
-        AND status NOT IN (
-          'completed',
+        AND raffles.status !=
           'cancelled'
+
+        AND datetime(
+          raffles.ends_at
+        ) <= datetime('now')
+
+        AND (
+          raffles.status !=
+            'completed'
+
+          OR NOT EXISTS (
+            SELECT 1
+
+            FROM raffle_winners
+              AS winners
+
+            WHERE winners.raffle_id =
+              raffles.id
+          )
         )
 
-        AND datetime(ends_at)
-          <= datetime('now')
-
-      ORDER BY ends_at ASC
+      ORDER BY
+        datetime(
+          raffles.ends_at
+        ) ASC,
+        raffles.id ASC
 
       LIMIT 50
     `)
@@ -1582,13 +1777,15 @@ export async function processAutomaticRaffles(
 
   for (const raffle of raffles) {
     try {
-      const success =
+      const outcome =
         await drawAutomaticRaffle(
           env,
           raffle
         );
 
-      if (success) {
+      if (
+        outcome?.completed
+      ) {
         completed += 1;
       }
     } catch (error) {
@@ -1600,7 +1797,198 @@ export async function processAutomaticRaffles(
   }
 
   return {
-    checked: raffles.length,
+    checked:
+      raffles.length,
+
     completed
   };
+}
+
+export async function getPublicRaffleOverlay(
+  env,
+  creatorId
+) {
+  await refreshRaffleStatuses(
+    env,
+    creatorId
+  );
+
+  /*
+   * On récupère uniquement la dernière tombola créée.
+   * Ainsi, une ancienne tombola terminée ne revient pas
+   * après l’annulation de la nouvelle.
+   */
+  const raffle = await env.DB.prepare(`
+    SELECT *
+    FROM creator_raffles
+
+    WHERE creator_id = ?
+
+    ORDER BY
+      datetime(created_at) DESC,
+      id DESC
+
+    LIMIT 1
+  `)
+    .bind(creatorId)
+    .first();
+
+  if (!raffle) {
+    return null;
+  }
+
+  if (raffle.status === "cancelled") {
+    return null;
+  }
+
+  /*
+   * Le résultat reste affiché pendant 20 secondes
+   * après le tirage.
+   */
+  if (raffle.status === "completed") {
+    const visibility =
+      await env.DB.prepare(`
+        SELECT 1 AS visible
+        FROM creator_raffles
+
+        WHERE id = ?
+
+          AND datetime(
+            COALESCE(
+              completed_at,
+              updated_at
+            )
+          ) >= datetime(
+            'now',
+            '-20 seconds'
+          )
+
+        LIMIT 1
+      `)
+        .bind(raffle.id)
+        .first();
+
+    if (!visibility) {
+      return null;
+    }
+  }
+
+  const visibleStatuses = [
+    "countdown",
+    "active",
+    "drawing",
+    "completed"
+  ];
+
+  if (
+    !visibleStatuses.includes(
+      raffle.status
+    )
+  ) {
+    return null;
+  }
+
+  if (
+    [
+      "countdown",
+      "active",
+      "drawing"
+    ].includes(raffle.status)
+  ) {
+    await synchronizeRaffleEntries(
+      env,
+      raffle
+    );
+  }
+
+  return getMappedRaffle(
+    env,
+    raffle
+  );
+}
+
+export async function deleteCreatorRaffle(
+  request,
+  env,
+  rawPublicId
+) {
+  const access =
+    await requireRaffleAccess(
+      request,
+      env
+    );
+
+  if (!access.allowed) {
+    return access.response;
+  }
+
+  if (
+    !access.user.permissions
+      .isSuperAdmin
+  ) {
+    return forbidden(
+      "Seul un administrateur peut supprimer une tombola."
+    );
+  }
+
+  const publicId =
+    cleanText(
+      rawPublicId,
+      150
+    );
+
+  const raffle =
+    await findRaffle(
+      env,
+      access.creatorId,
+      publicId
+    );
+
+  if (!raffle) {
+    return json(
+      {
+        error:
+          "Cette tombola n’existe pas."
+      },
+      404
+    );
+  }
+
+  if (
+    [
+      "countdown",
+      "active",
+      "drawing"
+    ].includes(raffle.status)
+  ) {
+    return json(
+      {
+        error:
+          "Annule la tombola avant de la supprimer."
+      },
+      409
+    );
+  }
+
+  await env.DB.batch([
+    env.DB.prepare(`
+      DELETE FROM raffle_winners
+      WHERE raffle_id = ?
+    `).bind(raffle.id),
+
+    env.DB.prepare(`
+      DELETE FROM raffle_entries
+      WHERE raffle_id = ?
+    `).bind(raffle.id),
+
+    env.DB.prepare(`
+      DELETE FROM creator_raffles
+      WHERE id = ?
+    `).bind(raffle.id)
+  ]);
+
+  return json({
+    success: true,
+    publicId
+  });
 }

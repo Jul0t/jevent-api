@@ -36,6 +36,13 @@ import {
 } from "./creators/panel.js";
 
 import {
+  listCreatorDonations,
+  updateDonationHistorySettings,
+  revealCreatorDonation,
+  deleteCreatorDonationTests
+} from "./creators/donation-history.js";
+
+import {
   getDescriptionWorkspace,
   saveDescriptionDraft,
   submitDescription,
@@ -172,6 +179,8 @@ import {
   createCreatorRaffle,
   cancelCreatorRaffle,
   drawCreatorRaffleWinner,
+  deleteCreatorRaffle,
+  getPublicRaffleOverlay,
   processAutomaticRaffles
 } from "./raffles/manage.js";
 
@@ -182,7 +191,8 @@ import {
 import {
   listCreatorOverlays,
   createCreatorOverlay,
-  rotateCreatorOverlayToken
+  rotateCreatorOverlayToken,
+  getPublicOverlay
 } from "./overlays/manage.js";
 
 import {
@@ -196,12 +206,25 @@ import {
   deleteDonationAlertVariant,
 
   uploadDonationAlertVariantMedia,
-  deleteDonationAlertVariantMedia
+  deleteDonationAlertVariantMedia,
+  getDonationAlertVariantMedia,
+  getPublicDonationAlertRules
+
 } from "./overlays/donation-alerts.js";
 
 import {
-  handleDocumentation
-} from "./docs/documentation.js";
+  getNextDonationDelivery,
+  revealDonationDelivery,
+  completeDonationDelivery
+} from "./overlays/donation-delivery.js";
+
+import {
+  getPublicDonationAlertMedia
+} from "./overlays/donation-public-media.js";
+
+import {
+  createDonationOverlayTest
+} from "./overlays/donation-tests.js";
 
 export {
   RaffleTimer
@@ -566,6 +589,44 @@ async function route(request, env) {
   if (
     request.method === "GET" &&
     url.pathname ===
+    "/api/creator-panel/donations"
+  ) {
+    return listCreatorDonations(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method === "PATCH" &&
+    url.pathname ===
+    "/api/creator-panel/donations/settings"
+  ) {
+    return updateDonationHistorySettings(
+      request,
+      env
+    );
+  }
+
+  const revealCreatorDonationMatch =
+    url.pathname.match(
+      /^\/api\/creator-panel\/donations\/(-?\d+)\/reveal$/
+    );
+
+  if (
+    request.method === "POST" &&
+    revealCreatorDonationMatch
+  ) {
+    return revealCreatorDonation(
+      request,
+      env,
+      revealCreatorDonationMatch[1]
+    );
+  }
+
+  if (
+    request.method === "GET" &&
+    url.pathname ===
     "/api/creator-panel/interactions/queue"
   ) {
     return listCreatorInteractionQueue(
@@ -787,6 +848,17 @@ async function route(request, env) {
      ======================================================== */
 
   if (
+    request.method === "DELETE" &&
+    url.pathname ===
+    "/api/creator-panel/donation-tests"
+  ) {
+    return deleteCreatorDonationTests(
+      request,
+      env
+    );
+  }
+
+  if (
     request.method === "GET" &&
     url.pathname === "/api/creator-panel"
   ) {
@@ -809,6 +881,24 @@ async function route(request, env) {
   /* ========================================================
      RAFFLES
      ======================================================== */
+
+  const deleteCreatorRaffleMatch =
+    url.pathname.match(
+      /^\/api\/creator-panel\/raffles\/([^/]+)$/
+    );
+
+  if (
+    request.method === "DELETE" &&
+    deleteCreatorRaffleMatch
+  ) {
+    return deleteCreatorRaffle(
+      request,
+      env,
+      decodeURIComponent(
+        deleteCreatorRaffleMatch[1]
+      )
+    );
+  }
 
   if (
     url.pathname ===
@@ -1194,6 +1284,144 @@ async function route(request, env) {
      OVERLAYS
      ======================================================== */
 
+  const revealDonationDeliveryMatch =
+    url.pathname.match(
+      /^\/api\/overlays\/([^/]+)\/donations\/([^/]+)\/reveal$/
+    );
+
+  if (
+    request.method === "POST" &&
+    revealDonationDeliveryMatch
+  ) {
+    return revealDonationDelivery(
+      request,
+      env,
+      decodeURIComponent(
+        revealDonationDeliveryMatch[1]
+      ),
+      decodeURIComponent(
+        revealDonationDeliveryMatch[2]
+      )
+    );
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname ===
+    "/api/creator-panel/donation-alerts/test"
+  ) {
+    return createDonationOverlayTest(
+      request,
+      env
+    );
+  }
+
+  const publicDonationAlertMediaMatch =
+    url.pathname.match(
+      /^\/api\/overlays\/([^/]+)\/donation-alerts\/([^/]+)\/variants\/([^/]+)\/media\/(image|video|sound)$/
+    );
+
+  if (
+    request.method === "GET" &&
+    publicDonationAlertMediaMatch
+  ) {
+    return getPublicDonationAlertMedia(
+      request,
+      env,
+      decodeURIComponent(
+        publicDonationAlertMediaMatch[1]
+      ),
+      decodeURIComponent(
+        publicDonationAlertMediaMatch[2]
+      ),
+      decodeURIComponent(
+        publicDonationAlertMediaMatch[3]
+      ),
+      publicDonationAlertMediaMatch[4]
+    );
+  }
+
+  const nextDonationDeliveryMatch =
+    url.pathname.match(
+      /^\/api\/overlays\/([^/]+)\/donations\/next$/
+    );
+
+  if (
+    request.method === "POST" &&
+    nextDonationDeliveryMatch
+  ) {
+    return getNextDonationDelivery(
+      request,
+      env,
+      decodeURIComponent(
+        nextDonationDeliveryMatch[1]
+      )
+    );
+  }
+
+  const completeDonationDeliveryMatch =
+    url.pathname.match(
+      /^\/api\/overlays\/([^/]+)\/donations\/([^/]+)\/complete$/
+    );
+
+  if (
+    request.method === "POST" &&
+    completeDonationDeliveryMatch
+  ) {
+    return completeDonationDelivery(
+      request,
+      env,
+
+      decodeURIComponent(
+        completeDonationDeliveryMatch[1]
+      ),
+
+      decodeURIComponent(
+        completeDonationDeliveryMatch[2]
+      )
+    );
+  }
+
+  const publicDonationOverlayMediaMatch =
+    url.pathname.match(
+      /^\/api\/overlays\/dons\/([^/]+)\/media\/([^/]+)\/(image|video|sound)$/
+    );
+
+  if (
+    request.method === "GET" &&
+    publicDonationOverlayMediaMatch
+  ) {
+    return getPublicDonationAlertMedia(
+      request,
+      env,
+      decodeURIComponent(
+        publicDonationOverlayMediaMatch[1]
+      ),
+      decodeURIComponent(
+        publicDonationOverlayMediaMatch[2]
+      ),
+      publicDonationOverlayMediaMatch[3]
+    );
+  }
+
+  const publicOverlayMatch =
+    url.pathname.match(
+      /^\/api\/overlays\/([^/]+)$/
+    );
+
+  if (
+    request.method === "GET" &&
+    publicOverlayMatch
+  ) {
+    return getPublicOverlay(
+      request,
+      env,
+      decodeURIComponent(
+        publicOverlayMatch[1]
+      )
+    );
+  }
+
   if (
     request.method === "GET" &&
     url.pathname ===
@@ -1271,6 +1499,22 @@ async function route(request, env) {
 
     const mediaKind =
       donationAlertVariantMediaMatch[3];
+
+    if (
+      request.method === "GET"
+    ) {
+      return getDonationAlertVariantMedia(
+        request,
+        env,
+        decodeURIComponent(
+          donationAlertVariantMediaMatch[1]
+        ),
+        decodeURIComponent(
+          donationAlertVariantMediaMatch[2]
+        ),
+        donationAlertVariantMediaMatch[3]
+      );
+    }
 
     if (request.method === "POST") {
       return uploadDonationAlertVariantMedia(
@@ -1455,14 +1699,6 @@ async function route(request, env) {
 
 export default {
   async fetch(request, env, ctx) {
-
-    const documentationResponse =
-      handleDocumentation(request);
-
-    if (documentationResponse) {
-      return documentationResponse;
-    }
-
     if (request.method === "OPTIONS") {
       return handleOptions(request, env);
     }
@@ -1513,22 +1749,45 @@ export default {
     );
 
     ctx.waitUntil(
-      (
-        async () => {
+      (async () => {
+        /*
+         * Une erreur Streamlabs ne doit jamais
+         * empêcher les tirages automatiques.
+         */
+        try {
           await syncStreamlabsCharityDonations(
             env
           );
-
-          await processAutomaticRaffles(
-            env
+        } catch (error) {
+          console.error(
+            "[Cron] Synchronisation Streamlabs échouée :",
+            error
           );
         }
-      )().catch(error => {
-        console.error(
-          "[Cron] Erreur :",
-          error
-        );
-      })
+
+        try {
+          console.log(
+            "[Cron] Recherche des tombolas automatiques…"
+          );
+
+          const result =
+            await processAutomaticRaffles(
+              env
+            );
+
+          console.log(
+            "[Cron] Tirages automatiques terminés :",
+            result
+          );
+        } catch (error) {
+          console.error(
+            "[Cron] Tirage automatique échoué :",
+            error
+          );
+
+          throw error;
+        }
+      })()
     );
   }
 };

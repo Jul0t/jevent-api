@@ -1019,6 +1019,48 @@ export async function updateDonationAlert(
                 existing
             );
 
+        if (rule.selectionMode === "fixed") {
+            const result =
+                await env.DB.prepare(`
+            SELECT COUNT(*) AS total
+            FROM creator_donation_alert_variants
+            WHERE rule_id = ?
+        `)
+                    .bind(existing.id)
+                    .first();
+
+            if (Number(result?.total || 0) > 1) {
+                return json(
+                    {
+                        error:
+                            "Supprime les variantes supplémentaires avant de sélectionner Animation fixe."
+                    },
+                    400
+                );
+            }
+        }
+
+        if (rule.selectionMode === "fixed") {
+            const result =
+                await env.DB.prepare(`
+            SELECT COUNT(*) AS total
+            FROM creator_donation_alert_variants
+            WHERE rule_id = ?
+        `)
+                    .bind(existing.id)
+                    .first();
+
+            if (Number(result?.total || 0) > 1) {
+                return json(
+                    {
+                        error:
+                            "Supprime les variantes supplémentaires avant de choisir Variante fixe."
+                    },
+                    400
+                );
+            }
+        }
+
         await env.DB.prepare(`
       UPDATE creator_donation_alert_rules
       SET
@@ -1536,33 +1578,251 @@ function normalizeAlertLayout(value) {
         return defaults;
     }
 
+    const boundedNumber = (
+        value,
+        fallback,
+        minimum,
+        maximum
+    ) => {
+        const number = Number(value);
+
+        const result =
+            Number.isFinite(number)
+                ? number
+                : fallback;
+
+        return Math.min(
+            maximum,
+            Math.max(minimum, result)
+        );
+    };
+
+    const animations = new Set([
+        "none",
+        "fade",
+        "slide-up",
+        "slide-down",
+        "slide-left",
+        "slide-right",
+        "scale",
+        "zoom",
+        "bounce"
+    ]);
+
+    const normalizeAnimation = (
+        value,
+        fallback = "fade"
+    ) => {
+        const animation =
+            String(value ?? "").trim();
+
+        return animations.has(animation)
+            ? animation
+            : fallback;
+    };
+
+    const durationMs =
+        boundedNumber(
+            parsed.durationMs,
+            6000,
+            1000,
+            300000
+        );
+
+    const sourceVideo =
+        parsed.video &&
+            typeof parsed.video === "object"
+            ? parsed.video
+            : {};
+
+    const normalizedVideo =
+        normalizeVideoLayer(
+            sourceVideo
+        );
+
+    const video = {
+        ...normalizedVideo,
+
+        id: "video",
+        type: "video",
+
+        name:
+            String(
+                sourceVideo.name ??
+                normalizedVideo.name ??
+                "Vidéo"
+            ).slice(0, 100),
+
+        locked:
+            Boolean(sourceVideo.locked),
+
+        aspectRatio:
+            boundedNumber(
+                sourceVideo.aspectRatio,
+                boundedNumber(
+                    sourceVideo.width,
+                    1920,
+                    30,
+                    3840
+                ) /
+                boundedNumber(
+                    sourceVideo.height,
+                    1080,
+                    30,
+                    2160
+                ),
+                0.01,
+                100
+            ),
+
+        delayMs:
+            boundedNumber(
+                sourceVideo.delayMs,
+                0,
+                0,
+                60000
+            ),
+
+        durationMs:
+            boundedNumber(
+                sourceVideo.durationMs,
+                durationMs,
+                100,
+                60000
+            ),
+
+        loop:
+            Boolean(sourceVideo.loop),
+
+        muted:
+            sourceVideo.muted !== false,
+
+        enterAnimation:
+            normalizeAnimation(
+                sourceVideo.enterAnimation ??
+                sourceVideo.animation,
+                "fade"
+            ),
+
+        exitAnimation:
+            normalizeAnimation(
+                sourceVideo.exitAnimation,
+                "fade"
+            )
+    };
+
     const sourceTexts =
         Array.isArray(parsed.texts)
             ? parsed.texts
             : defaults.texts;
 
+    const texts =
+        sourceTexts
+            .slice(
+                0,
+                MAX_ALERT_TEXT_LAYERS
+            )
+            .map((sourceText, index) => {
+                const text =
+                    sourceText &&
+                        typeof sourceText ===
+                        "object"
+                        ? sourceText
+                        : {};
+
+                const normalized =
+                    normalizeTextLayer(
+                        text,
+                        index
+                    );
+
+                return {
+                    ...normalized,
+
+                    type: "text",
+
+                    locked:
+                        Boolean(text.locked),
+
+                    height:
+                        boundedNumber(
+                            text.height,
+                            normalized.height ??
+                            160,
+                            30,
+                            2160
+                        ),
+
+                    lineHeight:
+                        boundedNumber(
+                            text.lineHeight,
+                            normalized.lineHeight ??
+                            1.15,
+                            0.5,
+                            3
+                        ),
+
+                    textShadow:
+                        text.textShadow !==
+                        false,
+
+                    delayMs:
+                        boundedNumber(
+                            text.delayMs,
+                            0,
+                            0,
+                            60000
+                        ),
+
+                    durationMs:
+                        boundedNumber(
+                            text.durationMs,
+                            durationMs,
+                            100,
+                            60000
+                        ),
+
+                    enterAnimation:
+                        normalizeAnimation(
+                            text.enterAnimation ??
+                            text.animation,
+                            "fade"
+                        ),
+
+                    exitAnimation:
+                        normalizeAnimation(
+                            text.exitAnimation,
+                            "fade"
+                        )
+                };
+            });
+
     return {
-        version: 1,
+        version: 2,
+
+        durationMs,
 
         canvas: {
-            width: 1920,
-            height: 1080
+            width:
+                boundedNumber(
+                    parsed.canvas?.width,
+                    1920,
+                    320,
+                    3840
+                ),
+
+            height:
+                boundedNumber(
+                    parsed.canvas?.height,
+                    1080,
+                    180,
+                    2160
+                )
         },
 
-        video:
-            normalizeVideoLayer(
-                parsed.video
-            ),
+        video,
 
-        texts:
-            sourceTexts
-                .slice(
-                    0,
-                    MAX_ALERT_TEXT_LAYERS
-                )
-                .map(
-                    normalizeTextLayer
-                )
+        texts
     };
 }
 
@@ -1672,9 +1932,81 @@ async function findVariant(
         .first();
 }
 
+async function findDefaultDonationAlertTemplate(
+    env
+) {
+    return env.DB.prepare(`
+        SELECT
+            id,
+            public_id,
+            name,
+            image_storage_key,
+            video_storage_key,
+            sound_storage_key,
+            media_type,
+            layout_json
+        FROM donation_alert_templates
+        WHERE enabled = 1
+          AND is_default = 1
+        ORDER BY id DESC
+        LIMIT 1
+    `)
+        .first();
+}
+
 /* =========================================================
    CRÉER UNE VARIANTE
    ========================================================= */
+
+async function deleteDonationAlertMediaIfUnused(
+    env,
+    storageKey
+) {
+    if (
+        !env.MEDIA ||
+        !storageKey
+    ) {
+        return;
+    }
+
+    const reference =
+        await env.DB.prepare(`
+            SELECT 1 AS found
+            FROM (
+                SELECT id
+                FROM creator_donation_alert_variants
+                WHERE image_storage_key = ?
+                   OR video_storage_key = ?
+                   OR sound_storage_key = ?
+
+                UNION ALL
+
+                SELECT id
+                FROM donation_alert_templates
+                WHERE image_storage_key = ?
+                   OR video_storage_key = ?
+                   OR sound_storage_key = ?
+            )
+            LIMIT 1
+        `)
+            .bind(
+                storageKey,
+                storageKey,
+                storageKey,
+                storageKey,
+                storageKey,
+                storageKey
+            )
+            .first();
+
+    if (reference) {
+        return;
+    }
+
+    await env.MEDIA.delete(
+        storageKey
+    );
+}
 
 export async function createDonationAlertVariant(
     request,
@@ -1714,6 +2046,50 @@ export async function createDonationAlertVariant(
         );
     }
 
+    if (rule.selection_mode === "fixed") {
+        const existingVariant =
+            await env.DB.prepare(`
+            SELECT id
+            FROM creator_donation_alert_variants
+            WHERE rule_id = ?
+            LIMIT 1
+        `)
+                .bind(rule.id)
+                .first();
+
+        if (existingVariant) {
+            return json(
+                {
+                    error:
+                        "Une alerte en variante fixe ne peut contenir qu’une seule variante."
+                },
+                400
+            );
+        }
+    }
+
+    if (rule.selection_mode === "fixed") {
+        const existingVariant =
+            await env.DB.prepare(`
+            SELECT id
+            FROM creator_donation_alert_variants
+            WHERE rule_id = ?
+            LIMIT 1
+        `)
+                .bind(rule.id)
+                .first();
+
+        if (existingVariant) {
+            return json(
+                {
+                    error:
+                        "Une animation fixe ne peut contenir qu’une seule variante."
+                },
+                400
+            );
+        }
+    }
+
     try {
         const body =
             await readJsonBody(request);
@@ -1724,44 +2100,88 @@ export async function createDonationAlertVariant(
         const publicId =
             `variant_${generateRandomToken(12)}`;
 
+        const template =
+            await findDefaultDonationAlertTemplate(
+                env
+            );
+
+        if (!template) {
+            console.warn(
+                "[Alertes] Aucun modèle d’alerte par défaut n’est configuré."
+            );
+        }
+
+        const imageStorageKey =
+            template?.image_storage_key ??
+            null;
+
+        const videoStorageKey =
+            template?.video_storage_key ??
+            null;
+
+        const soundStorageKey =
+            template?.sound_storage_key ??
+            null;
+
+        const mediaType =
+            template?.media_type ??
+            variant.mediaType;
+
+        const layoutJson =
+            template?.layout_json ??
+            JSON.stringify(
+                variant.layout
+            );
+
         await env.DB.prepare(`
-      INSERT INTO creator_donation_alert_variants (
-        public_id,
-        rule_id,
-        name,
-        enabled,
-        media_type,
-        weight,
-        display_order,
-        layout_json,
-        created_at,
-        updated_at
-      )
-      VALUES (
-        ?,
-        ?,
-        ?,
-        ?,
-        ?,
-        ?,
-        ?,
-        ?,
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP
-      )
-    `)
+            INSERT INTO
+                creator_donation_alert_variants (
+                    public_id,
+                    rule_id,
+                    name,
+                    enabled,
+                    image_storage_key,
+                    video_storage_key,
+                    sound_storage_key,
+                    media_type,
+                    weight,
+                    display_order,
+                    layout_json,
+                    created_at,
+                    updated_at
+                )
+            VALUES (
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+            )
+        `)
             .bind(
                 publicId,
                 rule.id,
                 variant.name,
-                variant.enabled ? 1 : 0,
-                variant.mediaType,
+                variant.enabled
+                    ? 1
+                    : 0,
+
+                imageStorageKey,
+                videoStorageKey,
+                soundStorageKey,
+
+                mediaType,
                 variant.weight,
                 variant.displayOrder,
-
-                JSON.stringify(
-                    variant.layout
-                )
+                layoutJson
             )
             .run();
 
@@ -1776,6 +2196,7 @@ export async function createDonationAlertVariant(
         return json(
             {
                 success: true,
+
                 variant:
                     mapVariant(created)
             },
@@ -1788,7 +2209,8 @@ export async function createDonationAlertVariant(
         ) {
             return json(
                 {
-                    error: error.message
+                    error:
+                        error.message
                 },
                 400
             );
@@ -1981,8 +2403,10 @@ export async function deleteDonationAlertVariant(
         await Promise.allSettled(
             storageKeys.map(
                 storageKey =>
-                    env.MEDIA.delete(storageKey)
-            )
+                    deleteDonationAlertMediaIfUnused(
+                        env,
+                        storageKey
+                    ))
         );
     }
 
@@ -2272,6 +2696,303 @@ function getVariantMediaStorageKey(
    ENVOYER UN MÉDIA
    ========================================================= */
 
+export async function getDonationAlertVariantMedia(
+    request,
+    env,
+    rawRulePublicId,
+    rawVariantPublicId,
+    rawMediaKind
+) {
+    const access =
+        await requireDonationAlertAccess(
+            request,
+            env
+        );
+
+    if (!access.allowed) {
+        return access.response;
+    }
+
+    const rulePublicId =
+        cleanText(
+            rawRulePublicId,
+            150
+        );
+
+    const variantPublicId =
+        cleanText(
+            rawVariantPublicId,
+            150
+        );
+
+    const mediaKind =
+        cleanText(
+            rawMediaKind,
+            20
+        );
+
+    if (
+        !["image", "video", "sound"]
+            .includes(mediaKind)
+    ) {
+        return json(
+            {
+                error:
+                    "Ce type de média est invalide."
+            },
+            400
+        );
+    }
+
+    if (!env.MEDIA) {
+        return json(
+            {
+                error:
+                    "Le stockage des médias n’est pas configuré."
+            },
+            500
+        );
+    }
+
+    const variant =
+        await findVariant(
+            env,
+            access.creatorId,
+            rulePublicId,
+            variantPublicId
+        );
+
+    if (!variant) {
+        return json(
+            {
+                error:
+                    "Cette variante n’existe pas."
+            },
+            404
+        );
+    }
+
+    const storageKey =
+        getVariantMediaStorageKey(
+            variant,
+            mediaKind
+        );
+
+    if (!storageKey) {
+        return json(
+            {
+                error:
+                    "Aucun média n’est configuré."
+            },
+            404
+        );
+    }
+
+    const rangeHeader =
+        request.headers.get(
+            "Range"
+        );
+
+    const object =
+        rangeHeader
+            ? await env.MEDIA.get(
+                storageKey,
+                {
+                    range:
+                        request.headers
+                }
+            )
+            : await env.MEDIA.get(
+                storageKey
+            );
+
+    if (!object) {
+        return json(
+            {
+                error:
+                    "Le fichier média est introuvable."
+            },
+            404
+        );
+    }
+
+    const headers =
+        new Headers();
+
+    /*
+     * Récupère les métadonnées HTTP enregistrées
+     * dans R2.
+     */
+    object.writeHttpMetadata(
+        headers
+    );
+
+    headers.set(
+        "ETag",
+        object.httpEtag
+    );
+
+    headers.set(
+        "Accept-Ranges",
+        "bytes"
+    );
+
+    headers.set(
+        "Cache-Control",
+        "private, max-age=3600"
+    );
+
+    /*
+     * Détermine un Content-Type fiable à partir
+     * de l'extension du fichier.
+     */
+    const normalizedStorageKey =
+        storageKey.toLowerCase();
+
+    let contentType =
+        object.httpMetadata?.contentType ||
+        "application/octet-stream";
+
+    if (
+        normalizedStorageKey.endsWith(
+            ".webm"
+        )
+    ) {
+        contentType =
+            "video/webm";
+    } else if (
+        normalizedStorageKey.endsWith(
+            ".mp4"
+        )
+    ) {
+        contentType =
+            "video/mp4";
+    } else if (
+        normalizedStorageKey.endsWith(
+            ".ogg"
+        ) ||
+        normalizedStorageKey.endsWith(
+            ".oga"
+        )
+    ) {
+        contentType =
+            "audio/ogg";
+    } else if (
+        normalizedStorageKey.endsWith(
+            ".mp3"
+        )
+    ) {
+        contentType =
+            "audio/mpeg";
+    } else if (
+        normalizedStorageKey.endsWith(
+            ".wav"
+        )
+    ) {
+        contentType =
+            "audio/wav";
+    } else if (
+        normalizedStorageKey.endsWith(
+            ".webp"
+        )
+    ) {
+        contentType =
+            "image/webp";
+    } else if (
+        normalizedStorageKey.endsWith(
+            ".png"
+        )
+    ) {
+        contentType =
+            "image/png";
+    } else if (
+        normalizedStorageKey.endsWith(
+            ".jpg"
+        ) ||
+        normalizedStorageKey.endsWith(
+            ".jpeg"
+        )
+    ) {
+        contentType =
+            "image/jpeg";
+    }
+
+    headers.set(
+        "Content-Type",
+        contentType
+    );
+
+    /*
+     * Si R2 a renvoyé une portion du fichier,
+     * on répond avec HTTP 206.
+     */
+    if (object.range) {
+        let offset = 0;
+        let length =
+            object.size;
+
+        if (
+            typeof object.range.offset ===
+            "number"
+        ) {
+            offset =
+                object.range.offset;
+
+            length =
+                typeof object.range.length ===
+                    "number"
+                    ? object.range.length
+                    : object.size - offset;
+        } else if (
+            typeof object.range.suffix ===
+            "number"
+        ) {
+            length =
+                Math.min(
+                    object.range.suffix,
+                    object.size
+                );
+
+            offset =
+                object.size - length;
+        }
+
+        const end =
+            offset + length - 1;
+
+        headers.set(
+            "Content-Range",
+            `bytes ${offset}-${end}/${object.size}`
+        );
+
+        headers.set(
+            "Content-Length",
+            String(length)
+        );
+
+        return new Response(
+            object.body,
+            {
+                status: 206,
+                headers
+            }
+        );
+    }
+
+    headers.set(
+        "Content-Length",
+        String(object.size)
+    );
+
+    return new Response(
+        object.body,
+        {
+            status: 200,
+            headers
+        }
+    );
+}
+
 export async function uploadDonationAlertVariantMedia(
     request,
     env,
@@ -2414,7 +3135,9 @@ export async function uploadDonationAlertVariantMedia(
         } catch (error) {
             await env.MEDIA.delete(
                 uploadedStorageKey
-            );
+            ).catch(() => { });
+
+            uploadedStorageKey = null;
 
             throw error;
         }
@@ -2424,7 +3147,8 @@ export async function uploadDonationAlertVariantMedia(
             oldStorageKey !==
             uploadedStorageKey
         ) {
-            await env.MEDIA.delete(
+            await deleteDonationAlertMediaIfUnused(
+                env,
                 oldStorageKey
             ).catch(() => { });
         }
@@ -2555,7 +3279,8 @@ export async function deleteDonationAlertVariantMedia(
         storageKey &&
         env.MEDIA
     ) {
-        await env.MEDIA.delete(
+        await deleteDonationAlertMediaIfUnused(
+            env,
             storageKey
         ).catch(error => {
             console.error(
@@ -2579,4 +3304,155 @@ export async function deleteDonationAlertVariantMedia(
         variant:
             mapVariant(updated)
     });
+}
+
+function publicOverlayMediaUrl(
+    request,
+    accessToken,
+    variantPublicId,
+    mediaKind
+) {
+    const origin =
+        new URL(request.url).origin;
+
+    return (
+        origin +
+        "/api/overlays/dons/" +
+        encodeURIComponent(accessToken) +
+        "/media/" +
+        encodeURIComponent(
+            variantPublicId
+        ) +
+        "/" +
+        encodeURIComponent(mediaKind)
+    );
+}
+
+export async function getPublicDonationAlertRules(
+    request,
+    env,
+    creatorId,
+    accessToken
+) {
+    const result =
+        await env.DB.prepare(`
+      SELECT *
+      FROM creator_donation_alert_rules
+      WHERE creator_id = ?
+        AND enabled = 1
+      ORDER BY
+        priority DESC,
+        id ASC
+    `)
+            .bind(creatorId)
+            .all();
+
+    const rules =
+        await Promise.all(
+            (result.results ?? []).map(
+                async rule => {
+                    const variantResult =
+                        await env.DB.prepare(`
+              SELECT *
+              FROM creator_donation_alert_variants
+              WHERE rule_id = ?
+                AND enabled = 1
+              ORDER BY
+                display_order ASC,
+                id ASC
+            `)
+                            .bind(rule.id)
+                            .all();
+
+                    const variants =
+                        (
+                            variantResult.results ??
+                            []
+                        ).map(variant => {
+                            const mapped =
+                                mapVariant(variant);
+
+                            return {
+                                publicId:
+                                    mapped.publicId,
+
+                                name:
+                                    mapped.name,
+
+                                enabled:
+                                    mapped.enabled,
+
+                                mediaType:
+                                    mapped.mediaType,
+
+                                weight:
+                                    mapped.weight,
+
+                                displayOrder:
+                                    mapped.displayOrder,
+
+                                layout:
+                                    mapped.layout,
+
+                                media: {
+                                    imageUrl:
+                                        variant.image_storage_key
+                                            ? publicOverlayMediaUrl(
+                                                request,
+                                                accessToken,
+                                                variant.public_id,
+                                                "image"
+                                            )
+                                            : null,
+
+                                    videoUrl:
+                                        variant.video_storage_key
+                                            ? publicOverlayMediaUrl(
+                                                request,
+                                                accessToken,
+                                                variant.public_id,
+                                                "video"
+                                            )
+                                            : null,
+
+                                    soundUrl:
+                                        variant.sound_storage_key
+                                            ? publicOverlayMediaUrl(
+                                                request,
+                                                accessToken,
+                                                variant.public_id,
+                                                "sound"
+                                            )
+                                            : null
+                                },
+
+                                createdAt:
+                                    mapped.createdAt,
+
+                                updatedAt:
+                                    mapped.updatedAt
+                            };
+                        });
+
+                    const mappedRule =
+                        mapRule(
+                            rule,
+                            variants
+                        );
+
+                    return {
+                        ...mappedRule,
+
+                        /*
+                         * On réinjecte les variantes publiques complètes.
+                         * mapRule ne doit pas supprimer le layout,
+                         * l’identifiant public ou les URLs des médias.
+                         */
+                        variants
+                    };
+                }
+            )
+        );
+
+    return rules;
 }

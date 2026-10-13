@@ -11,17 +11,11 @@ function extractDonations(payload) {
     return payload;
   }
 
-  if (
-    Array.isArray(payload?.data)
-  ) {
+  if (Array.isArray(payload?.data)) {
     return payload.data;
   }
 
-  if (
-    Array.isArray(
-      payload?.donations
-    )
-  ) {
+  if (Array.isArray(payload?.donations)) {
     return payload.donations;
   }
 
@@ -88,12 +82,16 @@ async function findCreator(
   }
 
   return env.DB.prepare(`
-    SELECT id
-    FROM creators
-    WHERE streamlabs_member_id = ?
-    LIMIT 1
-  `)
-    .bind(String(memberId))
+  SELECT id
+  FROM creators
+  WHERE TRIM(
+    CAST(streamlabs_member_id AS TEXT)
+  ) = ?
+  LIMIT 1
+`)
+    .bind(
+      String(memberId).trim()
+    )
     .first();
 }
 
@@ -126,7 +124,7 @@ function normalizeDonation(row) {
 
   const currency =
     String(
-      donation?.team_currency ??
+      donation?.member_currency ??
       donation?.converted_currency ??
       donation?.original_currency ??
       "EUR"
@@ -136,7 +134,7 @@ function normalizeDonation(row) {
 
   const rawAmount =
     Number(
-      donation?.team_amount ??
+      donation?.member_amount ??
       donation?.converted_amount ??
       donation?.original_amount ??
       0
@@ -146,9 +144,7 @@ function normalizeDonation(row) {
     Number.isFinite(rawAmount)
       ? Math.max(
         0,
-        Math.round(
-          rawAmount * 100
-        )
+        Math.round(rawAmount)
       )
       : 0;
 
@@ -160,11 +156,9 @@ function normalizeDonation(row) {
     amountCents,
 
     memberId:
-      donation?.team_member_id
-        ? String(
-          donation.team_member_id
-        )
-        : null,
+      String(
+        row?.member?.user?.id ?? ""
+      ).trim() || null,
 
     donatedAt:
       donation?.created_at ??
@@ -317,7 +311,7 @@ async function importDonation(
     return "existing";
   }
 
-  return match
+  return creator
     ? "credited"
     : "unmatched";
 }
@@ -331,9 +325,16 @@ async function fetchDonationPage(
     );
 
   url.searchParams.set(
-    "page",
-    String(page)
+    "l",
+    "fr-FR"
   );
+
+  if (page > 1) {
+    url.searchParams.set(
+      "page",
+      String(page)
+    );
+  }
 
   const response =
     await fetch(

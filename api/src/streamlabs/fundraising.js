@@ -13,7 +13,7 @@ function toCents(value) {
   );
 
   if (!Number.isFinite(n)) return null;
-  return Math.max(0, Math.round(n * 100));
+  return Math.max(0, Math.round(n));
 }
 
 function pickAmount(raw) {
