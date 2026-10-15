@@ -24,14 +24,16 @@ const OVERLAY_TYPES =
     "raffle",
     "donations",
     "donation_bar",
-    "donation_goals"
+    "donation_goals",
+    "donation_qr"
   ]);
 
 const OVERLAY_PATHS = {
   raffle: "tombola",
   donations: "dons",
   donation_bar: "barre-dons",
-  donation_goals: "objectifs-dons"
+  donation_goals: "objectifs-dons",
+  donation_qr: "qr-don"
 };
 
 async function requireOverlayAccess(
@@ -203,7 +205,8 @@ export async function listCreatorOverlays(
           WHEN 'donations' THEN 2
           WHEN 'donation_bar' THEN 3
           WHEN 'donation_goals' THEN 4
-          ELSE 5
+          WHEN 'donation_qr' THEN 5
+          ELSE 6
         END
     `)
       .bind(
