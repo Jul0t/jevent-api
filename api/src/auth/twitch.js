@@ -48,8 +48,8 @@ const ALLOWED_RETURN_PATHS = new Set(
     "/",
     "/compte.html",
     "/createur-panel.html",
-    "/createur-panel-beta.html",
-    "/programme-panel-beta.html",
+    "/createur-panel.html",
+    "/programme-panel.html",
     "/moderation.html",
     "/moderation-beta.html",
     "/admin.html",
@@ -272,7 +272,7 @@ export async function finishTwitchLogin(
 
     const destinationPath =
     creatorAttachment?.requiresOnboarding
-      ? "/createur-panel-beta.html"
+      ? "/createur-panel.html"
       : returnPath;
 
   const destination = new URL(

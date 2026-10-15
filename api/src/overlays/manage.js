@@ -447,6 +447,119 @@ export async function rotateCreatorOverlayToken(
   });
 }
 
+export async function updateCreatorOverlaySettings(
+  request,
+  env,
+  rawOverlayType
+) {
+  const access =
+    await requireOverlayAccess(request, env);
+
+  if (!access.allowed) {
+    return access.response;
+  }
+
+  const overlayType =
+    String(rawOverlayType || "").trim();
+
+  if (!OVERLAY_TYPES.has(overlayType)) {
+    return json(
+      {
+        error:
+          "Ce type d’overlay est invalide."
+      },
+      400
+    );
+  }
+
+  const existing =
+    await findCreatorOverlay(
+      env,
+      access.creatorId,
+      overlayType
+    );
+
+  if (!existing) {
+    return json(
+      {
+        error:
+          "Cet overlay n’a pas encore été créé."
+      },
+      404
+    );
+  }
+
+  let payload;
+
+  try {
+    payload = await request.json();
+  } catch {
+    return json(
+      {
+        error:
+          "Le corps JSON est invalide."
+      },
+      400
+    );
+  }
+
+  const currentSettings =
+    parseSettings(existing.settings_json);
+
+  const settings = {
+    ...currentSettings
+  };
+
+  if (overlayType === "donation_goals") {
+    const requestedSpeed =
+      Number(payload.scrollSpeed);
+
+    settings.scrollEnabled =
+      payload.scrollEnabled === true;
+
+    settings.scrollSpeed =
+      Number.isFinite(requestedSpeed)
+        ? Math.min(
+          200,
+          Math.max(
+            10,
+            Math.round(requestedSpeed)
+          )
+        )
+        : 35;
+  }
+
+  await env.DB.prepare(`
+    UPDATE creator_overlays
+
+    SET
+      settings_json = ?,
+      updated_at = CURRENT_TIMESTAMP
+
+    WHERE creator_id = ?
+      AND overlay_type = ?
+  `)
+    .bind(
+      JSON.stringify(settings),
+      access.creatorId,
+      overlayType
+    )
+    .run();
+
+  const overlay =
+    await findCreatorOverlay(
+      env,
+      access.creatorId,
+      overlayType
+    );
+
+  return json({
+    success: true,
+    overlay:
+      mapOverlay(env, overlay)
+  });
+}
+
 export async function getPublicOverlay(
   request,
   env,

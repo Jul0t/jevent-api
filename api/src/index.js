@@ -192,7 +192,8 @@ import {
   listCreatorOverlays,
   createCreatorOverlay,
   rotateCreatorOverlayToken,
-  getPublicOverlay
+  getPublicOverlay,
+  updateCreatorOverlaySettings,
 } from "./overlays/manage.js";
 
 import {
@@ -1448,6 +1449,24 @@ async function route(request, env) {
     url.pathname.match(
       /^\/api\/creator-panel\/overlays\/([^/]+)\/rotate$/
     );
+
+  const overlaySettingsMatch =
+    url.pathname.match(
+      /^\/api\/creator-panel\/overlays\/([^/]+)\/settings$/
+    );
+
+  if (
+    request.method === "PATCH" &&
+    overlaySettingsMatch
+  ) {
+    return updateCreatorOverlaySettings(
+      request,
+      env,
+      decodeURIComponent(
+        overlaySettingsMatch[1]
+      )
+    );
+  }
 
   if (
     request.method === "POST" &&
