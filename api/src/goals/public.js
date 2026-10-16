@@ -2,10 +2,6 @@ import {
   json
 } from "../shared/responses.js";
 
-import {
-  getCreatorRaisedCents
-} from "../streamlabs/fundraising.js";
-
 export async function listPublicGoals(
   request,
   env,
@@ -32,10 +28,23 @@ export async function listPublicGoals(
     );
   }
 
+  const total = await env.DB.prepare(`
+  SELECT
+    COALESCE(SUM(amount_cents), 0)
+      AS total_cents
+  FROM interaction_donations
+  WHERE creator_id = ?
+    AND currency = 'EUR'
+    AND status = 'credited'
+`)
+    .bind(creator.id)
+    .first();
+
   const creatorAmountRaisedCents =
-    await getCreatorRaisedCents(
-      creator.streamlabs_goal_url
-    );
+    Math.max(
+      0,
+      Number(total?.total_cents ?? 0)
+    );  
 
   const result = await env.DB.prepare(`
     SELECT
