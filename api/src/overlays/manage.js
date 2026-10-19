@@ -25,7 +25,8 @@ const OVERLAY_TYPES =
     "donations",
     "donation_bar",
     "donation_goals",
-    "donation_qr"
+    "donation_qr",
+    "donation_global"
   ]);
 
 const OVERLAY_PATHS = {
@@ -33,7 +34,8 @@ const OVERLAY_PATHS = {
   donations: "dons",
   donation_bar: "barre-dons",
   donation_goals: "objectifs-dons",
-  donation_qr: "qr-don"
+  donation_qr: "qr-don",
+  donation_global: "cagnotte-globale"
 };
 
 async function requireOverlayAccess(
@@ -206,7 +208,8 @@ export async function listCreatorOverlays(
           WHEN 'donation_bar' THEN 3
           WHEN 'donation_goals' THEN 4
           WHEN 'donation_qr' THEN 5
-          ELSE 6
+          WHEN 'donation_global' THEN 6
+          ELSE 7
         END
     `)
       .bind(
@@ -592,6 +595,36 @@ export async function getPublicOverlay(
         );
     }
 
+    let globalDonation = null;
+
+    if (
+      overlay.overlay_type ===
+      "donation_global"
+    ) {
+      const total =
+        await env.DB.prepare(`
+            SELECT
+                COALESCE(
+                    SUM(amount_cents),
+                    0
+                ) AS total_cents
+            FROM interaction_donations
+            WHERE status = 'credited'
+              AND currency = 'EUR'
+        `)
+          .first();
+
+      globalDonation = {
+        amountCents:
+          Math.max(
+            0,
+            Number(
+              total?.total_cents || 0
+            )
+          )
+      };
+    }
+
     return json(
       {
         error:
@@ -700,6 +733,8 @@ export async function getPublicOverlay(
       donationAlerts,
 
       raffle,
+
+      globalDonation,
 
       creator: {
         publicId:
