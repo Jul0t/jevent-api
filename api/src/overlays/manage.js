@@ -595,33 +595,6 @@ export async function getPublicOverlay(
         );
     }
 
-    let globalDonation = null;
-
-    if (
-      overlay.overlay_type ===
-      "donation_global"
-    ) {
-      const result =
-        await env.DB.prepare(`
-            SELECT
-                COALESCE(
-                    SUM(amount_cents),
-                    0
-                ) AS total_cents
-            FROM interaction_donations
-            WHERE status = 'credited'
-              AND currency = 'EUR'
-        `)
-          .first();
-
-      globalDonation = {
-        amountCents:
-          Number(
-            result?.total_cents ?? 0
-          )
-      };
-    }
-
   return json(
     {
       error:
@@ -685,6 +658,33 @@ if (!overlay) {
 let donationAlerts = null;
 let raffle = null;
 
+let globalDonation = null;
+
+if (
+  overlay.overlay_type ===
+  "donation_global"
+) {
+  const result =
+    await env.DB.prepare(`
+            SELECT
+                COALESCE(
+                    SUM(amount_cents),
+                    0
+                ) AS total_cents
+            FROM interaction_donations
+            WHERE status = 'credited'
+              AND UPPER(currency) = 'EUR'
+        `)
+      .first();
+
+  globalDonation = {
+    amountCents:
+      Number(
+        result?.total_cents ?? 0
+      )
+  };
+}
+
 if (
   overlay.overlay_type ===
   "donations"
@@ -728,9 +728,7 @@ return json({
       ),
 
     donationAlerts,
-
     raffle,
-
     globalDonation,
 
     creator: {
