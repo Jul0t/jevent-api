@@ -601,7 +601,7 @@ export async function getPublicOverlay(
       overlay.overlay_type ===
       "donation_global"
     ) {
-      const total =
+      const result =
         await env.DB.prepare(`
             SELECT
                 COALESCE(
@@ -616,26 +616,23 @@ export async function getPublicOverlay(
 
       globalDonation = {
         amountCents:
-          Math.max(
-            0,
-            Number(
-              total?.total_cents || 0
-            )
+          Number(
+            result?.total_cents ?? 0
           )
       };
     }
 
-    return json(
-      {
-        error:
-          "Overlay introuvable."
-      },
-      404
-    );
-  }
+  return json(
+    {
+      error:
+        "Overlay introuvable."
+    },
+    404
+  );
+}
 
-  const overlay =
-    await env.DB.prepare(`
+const overlay =
+  await env.DB.prepare(`
       SELECT
         creator_overlays.public_id,
         creator_overlays.overlay_type,
@@ -672,89 +669,89 @@ export async function getPublicOverlay(
 
       LIMIT 1
     `)
-      .bind(accessToken)
-      .first();
+    .bind(accessToken)
+    .first();
 
-  if (!overlay) {
-    return json(
-      {
-        error:
-          "Overlay introuvable."
-      },
-      404
-    );
-  }
+if (!overlay) {
+  return json(
+    {
+      error:
+        "Overlay introuvable."
+    },
+    404
+  );
+}
 
-  let donationAlerts = null;
-  let raffle = null;
+let donationAlerts = null;
+let raffle = null;
 
-  if (
-    overlay.overlay_type ===
-    "donations"
-  ) {
-    donationAlerts = {
-      rules:
-        await getPublicDonationAlertRules(
-          request,
-          env,
-          Number(overlay.creator_id),
-          accessToken
-        )
-    };
-  }
-
-  if (
-    overlay.overlay_type ===
-    "raffle"
-  ) {
-    raffle =
-      await getPublicRaffleOverlay(
+if (
+  overlay.overlay_type ===
+  "donations"
+) {
+  donationAlerts = {
+    rules:
+      await getPublicDonationAlertRules(
+        request,
         env,
-        Number(overlay.creator_id)
-      );
-  }
+        Number(overlay.creator_id),
+        accessToken
+      )
+  };
+}
 
-  return json({
-    overlay: {
+if (
+  overlay.overlay_type ===
+  "raffle"
+) {
+  raffle =
+    await getPublicRaffleOverlay(
+      env,
+      Number(overlay.creator_id)
+    );
+}
+
+return json({
+  overlay: {
+    publicId:
+      overlay.public_id,
+
+    overlayType:
+      overlay.overlay_type,
+
+    enabled:
+      Boolean(overlay.enabled),
+
+    settings:
+      parseSettings(
+        overlay.settings_json
+      ),
+
+    donationAlerts,
+
+    raffle,
+
+    globalDonation,
+
+    creator: {
       publicId:
-        overlay.public_id,
+        overlay.creator_public_id,
 
-      overlayType:
-        overlay.overlay_type,
+      slug:
+        overlay.creator_slug,
 
-      enabled:
-        Boolean(overlay.enabled),
+      displayName:
+        overlay.creator_display_name,
 
-      settings:
-        parseSettings(
-          overlay.settings_json
-        ),
+      profileImageUrl:
+        overlay.creator_profile_image_url
+    },
 
-      donationAlerts,
+    createdAt:
+      overlay.created_at,
 
-      raffle,
-
-      globalDonation,
-
-      creator: {
-        publicId:
-          overlay.creator_public_id,
-
-        slug:
-          overlay.creator_slug,
-
-        displayName:
-          overlay.creator_display_name,
-
-        profileImageUrl:
-          overlay.creator_profile_image_url
-      },
-
-      createdAt:
-        overlay.created_at,
-
-      updatedAt:
-        overlay.updated_at
-    }
-  });
+    updatedAt:
+      overlay.updated_at
+  }
+});
 }
