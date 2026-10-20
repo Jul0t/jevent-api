@@ -167,10 +167,6 @@ import {
 } from "./admin/interaction-uploads.js";
 
 import {
-  createInteractionEffect
-} from "./interactions/effects.js";
-
-import {
   syncStreamlabsCharityDonations
 } from "./interactions/streamlabs-donations.js";
 
@@ -1290,6 +1286,45 @@ async function route(request, env) {
   /* ========================================================
      OVERLAYS
      ======================================================== */
+
+  const nextInteractionEffectMatch =
+    url.pathname.match(
+      /^\/api\/overlays\/([^/]+)\/effects\/next$/
+    );
+
+  if (
+    request.method === "POST" &&
+    nextInteractionEffectMatch
+  ) {
+    return getNextInteractionEffect(
+      request,
+      env,
+      decodeURIComponent(
+        nextInteractionEffectMatch[1]
+      )
+    );
+  }
+
+  const completeInteractionEffectMatch =
+    url.pathname.match(
+      /^\/api\/overlays\/([^/]+)\/effects\/([^/]+)\/complete$/
+    );
+
+  if (
+    request.method === "POST" &&
+    completeInteractionEffectMatch
+  ) {
+    return completeInteractionEffect(
+      request,
+      env,
+      decodeURIComponent(
+        completeInteractionEffectMatch[1]
+      ),
+      decodeURIComponent(
+        completeInteractionEffectMatch[2]
+      )
+    );
+  }
 
   const revealDonationDeliveryMatch =
     url.pathname.match(

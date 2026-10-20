@@ -12,10 +12,6 @@ import {
   getTwitchStreamsByUserIds
 } from "../twitch/api.js";
 
-import {
-  getCreatorRaisedCents
-} from "../streamlabs/fundraising.js";
-
 /* ============================================================
    UTILITAIRES
    ============================================================ */
@@ -127,18 +123,16 @@ async function mapPublicCreator(
     creator.streamlabs_goal_url
   ) {
     try {
-      const raised =
-        await getCreatorRaisedCents(
-          creator.streamlabs_goal_url
-        );
+      const raisedCents =
+        includeRaised
+          ? Math.max(
+            0,
+            Number(
+              creator.raised_cents ?? 0
+            )
+          )
+          : null;
 
-      if (
-        raised !== null &&
-        raised !== undefined &&
-        Number.isFinite(Number(raised))
-      ) {
-        raisedCents = Number(raised);
-      }
     } catch (error) {
       console.error(
         `Impossible de récupérer la cagnotte de ${creator.slug} :`,
@@ -251,6 +245,13 @@ async function getVisibleCreators(env) {
       public_description_markdown,
       streamlabs_member_id,
       donation_url,
+      COALESCE((
+  SELECT SUM(d.amount_cents)
+  FROM interaction_donations AS d
+  WHERE d.creator_id = creators.id
+    AND d.status = 'credited'
+    AND UPPER(d.currency) = 'EUR'
+), 0) AS raised_cents,
       display_order,
       active,
       archived
@@ -302,7 +303,10 @@ export async function listPublicCreators(
             creator,
             streamMap.get(
               String(creator.twitch_id)
-            ) ?? null
+            ) ?? null,
+            {
+              includeRaised: true
+            }
           )
       )
     );
@@ -339,6 +343,7 @@ export async function listPublicCreators(
   );
 
   return json({
+
     creators: mappedCreators,
 
     total:
@@ -347,7 +352,19 @@ export async function listPublicCreators(
     liveCount:
       mappedCreators.filter(
         creator => creator.isLive
-      ).length
+      ).length,
+
+    overview: {
+      totalRaisedCents:
+        mappedCreators.reduce(
+          (total, creator) =>
+            total +
+            Number(
+              creator.raisedCents ?? 0
+            ),
+          0
+        )
+    }
   });
 }
 
@@ -380,6 +397,13 @@ export async function getPublicCreatorBySlug(
       streamlabs_member_id,
       streamlabs_goal_url,
       donation_url,
+      COALESCE((
+  SELECT SUM(d.amount_cents)
+  FROM interaction_donations AS d
+  WHERE d.creator_id = creators.id
+    AND d.status = 'credited'
+    AND UPPER(d.currency) = 'EUR'
+), 0) AS raised_cents,
       display_order,
       active,
       archived
