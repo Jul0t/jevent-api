@@ -116,30 +116,16 @@ async function mapPublicCreator(
     includeRaised = false
   } = {}
 ) {
-  let raisedCents = null;
 
-  if (
-    includeRaised &&
-    creator.streamlabs_goal_url
-  ) {
-    try {
-      const raisedCents =
-        includeRaised
-          ? Math.max(
-            0,
-            Number(
-              creator.raised_cents ?? 0
-            )
-          )
-          : null;
-
-    } catch (error) {
-      console.error(
-        `Impossible de récupérer la cagnotte de ${creator.slug} :`,
-        error
-      );
-    }
-  }
+  const raisedCents =
+    includeRaised
+      ? Math.max(
+        0,
+        Number(
+          creator.raised_cents ?? 0
+        )
+      )
+      : null;
 
   const hasDonationDestination =
     Boolean(
@@ -245,13 +231,14 @@ async function getVisibleCreators(env) {
       public_description_markdown,
       streamlabs_member_id,
       donation_url,
+
       COALESCE((
-  SELECT SUM(d.amount_cents)
-  FROM interaction_donations AS d
-  WHERE d.creator_id = creators.id
-    AND d.status = 'credited'
-    AND UPPER(d.currency) = 'EUR'
-), 0) AS raised_cents,
+        SELECT SUM(d.amount_cents)
+        FROM interaction_donations AS d
+        WHERE d.creator_id = creators.id
+          AND d.status = 'credited'
+    ), 0) AS raised_cents,
+
       display_order,
       active,
       archived
@@ -343,7 +330,6 @@ export async function listPublicCreators(
   );
 
   return json({
-
     creators: mappedCreators,
 
     total:
