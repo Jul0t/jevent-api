@@ -165,6 +165,10 @@ import {
 } from "./admin/interaction-uploads.js";
 
 import {
+  createInteractionEffect
+} from "./interactions/effects.js";
+
+import {
   syncStreamlabsCharityDonations
 } from "./interactions/streamlabs-donations.js";
 
@@ -1640,6 +1644,17 @@ async function route(request, env) {
   /* ========================================================
      INTERACTIONS
      ======================================================== */
+
+  if (
+    request.method === "POST" &&
+    url.pathname ===
+    "/api/interactions/effects"
+  ) {
+    return createInteractionEffect(
+      request,
+      env
+    );
+  }
 
   if (
     request.method === "GET" &&
