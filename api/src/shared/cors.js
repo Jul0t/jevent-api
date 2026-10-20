@@ -16,7 +16,12 @@ export function applyCors(request, env, response) {
     response
   );
 
-  if (
+  if (origin === "null") {
+    result.headers.set(
+      "Access-Control-Allow-Origin",
+      "null"
+    );
+  } else if (
     origin &&
     allowedOrigins.includes(origin)
   ) {
@@ -38,7 +43,7 @@ export function applyCors(request, env, response) {
 
   result.headers.set(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Bootstrap-Secret"
+    "Content-Type, Accept, Authorization, X-Bootstrap-Secret"
   );
 
   result.headers.set(

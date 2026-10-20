@@ -155,8 +155,10 @@ import {
 } from "./admin/interactions.js";
 
 import {
-  createInteractionUpload
-} from "./interactions/uploads.js";
+  createInteractionEffect,
+  getNextInteractionEffect,
+  completeInteractionEffect
+} from "./interactions/effects.js";
 
 import {
   listAdminInteractionUploads,
@@ -1653,6 +1655,45 @@ async function route(request, env) {
     return createInteractionEffect(
       request,
       env
+    );
+  }
+
+  const nextEffectMatch =
+    url.pathname.match(
+      /^\/api\/overlays\/([^/]+)\/effects\/next$/
+    );
+
+  if (
+    request.method === "POST" &&
+    nextEffectMatch
+  ) {
+    return getNextInteractionEffect(
+      request,
+      env,
+      decodeURIComponent(
+        nextEffectMatch[1]
+      )
+    );
+  }
+
+  const completeEffectMatch =
+    url.pathname.match(
+      /^\/api\/overlays\/([^/]+)\/effects\/([^/]+)\/complete$/
+    );
+
+  if (
+    request.method === "POST" &&
+    completeEffectMatch
+  ) {
+    return completeInteractionEffect(
+      request,
+      env,
+      decodeURIComponent(
+        completeEffectMatch[1]
+      ),
+      decodeURIComponent(
+        completeEffectMatch[2]
+      )
     );
   }
 
