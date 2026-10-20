@@ -12,7 +12,8 @@ const INTERACTION_TYPES =
     "text",
     "code",
     "sound",
-    "advanced"
+    "advanced",
+    "effect"
   ]);
 
 const IMAGE_CONTENT_TYPES =
@@ -181,14 +182,14 @@ function normalizeImageConfig(config) {
       config.allowedContentTypes
     )
       ? config.allowedContentTypes
-          .map(value =>
-            String(value).trim()
+        .map(value =>
+          String(value).trim()
+        )
+        .filter(value =>
+          IMAGE_CONTENT_TYPES.has(
+            value
           )
-          .filter(value =>
-            IMAGE_CONTENT_TYPES.has(
-              value
-            )
-          )
+        )
       : [];
 
   return {
@@ -207,15 +208,15 @@ function normalizeImageConfig(config) {
     allowedContentTypes:
       allowedContentTypes.length > 0
         ? [
-            ...new Set(
-              allowedContentTypes
-            )
-          ]
+          ...new Set(
+            allowedContentTypes
+          )
+        ]
         : [
-            "image/jpeg",
-            "image/png",
-            "image/webp"
-          ]
+          "image/jpeg",
+          "image/png",
+          "image/webp"
+        ]
   };
 }
 
@@ -335,7 +336,7 @@ function normalizePayload(
     opensAt &&
     closesAt &&
     new Date(closesAt) <=
-      new Date(opensAt)
+    new Date(opensAt)
   ) {
     return {
       valid: false,
@@ -385,15 +386,16 @@ function normalizePayload(
       costCents,
 
       moderationRequired:
-        cleanBoolean(
-          body?.moderationRequired,
-          existing
-            ? Boolean(
-                existing
-                  .moderation_required
+        type === "effect"
+          ? false
+          : cleanBoolean(
+            body?.moderationRequired,
+            existing
+              ? Boolean(
+                existing.moderation_required
               )
-            : true
-        ),
+              : true
+          ),
 
       visible:
         cleanBoolean(
