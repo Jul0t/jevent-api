@@ -6,10 +6,6 @@ import {
   requireAdminAccess
 } from "./access.js";
 
-import {
-  getCreatorRaisedCents
-} from "../streamlabs/fundraising.js";
-
 function normalizeDate(value) {
   const date =
     String(value ?? "").trim();
@@ -246,6 +242,13 @@ export async function getAdminStatsOverview(
         creators.archived,
         creators.streamlabs_goal_url,
 
+        COALESCE((
+          SELECT SUM(d.amount_cents)
+          FROM interaction_donations AS d
+          WHERE d.creator_id = creators.id
+            AND d.status = 'credited'
+        ), 0) AS raised_cents,
+
         COALESCE(
           SUM(stats.messages_count),
           0
@@ -294,56 +297,55 @@ export async function getAdminStatsOverview(
       : creatorsStatement.all()
   ]);
 
-  const creators = await Promise.all(
-    (creatorsResult.results ?? []).map(
-      async creator => {
-        let raisedCents = null;
+  const creators =
+    await Promise.all(
+      (creatorsResult.results ?? []).map(
+        async creator => {
+          let raisedCents = null;
 
-        if (creator.streamlabs_goal_url) {
-          try {
-            raisedCents =
-              await getCreatorRaisedCents(
-                creator.streamlabs_goal_url
+          if (creator.streamlabs_goal_url) {
+            try {
+              raisedCents =
+                await getCreatorRaisedCents(
+                  creator.streamlabs_goal_url
+                );
+            } catch (error) {
+              console.error(
+                `Impossible de récupérer la cagnotte de ${creator.slug} :`,
+                error
               );
-          } catch (error) {
-            console.error(
-              `Impossible de récupérer la cagnotte de ${creator.slug} :`,
-              error
-            );
+            }
           }
+
+          return {
+            id: Number(creator.id),
+            slug: creator.slug,
+
+            displayName:
+              creator.twitch_display_name,
+
+            active:
+              Boolean(creator.active),
+
+            archived:
+              Boolean(creator.archived),
+
+            messages:
+              Number(
+                creator.messages_count ?? 0
+              ),
+
+            emotes:
+              Number(
+                creator.emotes_count ?? 0
+              ),
+
+            raisedCents:
+              Number(creator.raised_cents ?? 0)
+          };
         }
-
-        return {
-          id: Number(creator.id),
-          slug: creator.slug,
-
-          displayName:
-            creator.twitch_display_name,
-
-          active:
-            Boolean(creator.active),
-
-          archived:
-            Boolean(creator.archived),
-
-          messages:
-            Number(
-              creator.messages_count ?? 0
-            ),
-
-          emotes:
-            Number(
-              creator.emotes_count ?? 0
-            ),
-
-          raisedCents:
-            raisedCents === null
-              ? null
-              : Number(raisedCents)
-        };
-      }
-    )
-  );
+      )
+    );
 
   const totalRaisedCents =
     creators.reduce(
@@ -389,32 +391,32 @@ export async function getAdminStatsOverview(
       emotes:
         Number(twitch?.emotes ?? 0),
 
-      raisedCents:totalRaisedCents
+      raisedCents: totalRaisedCents
     },
 
     creators:
-        creator => ({
-          id: Number(creator.id),
-          slug: creator.slug,
+      creator => ({
+        id: Number(creator.id),
+        slug: creator.slug,
 
-          displayName:
-            creator.twitch_display_name,
+        displayName:
+          creator.twitch_display_name,
 
-          active:
-            Boolean(creator.active),
+        active:
+          Boolean(creator.active),
 
-          archived:
-            Boolean(creator.archived),
+        archived:
+          Boolean(creator.archived),
 
-          messages:
-            Number(
-              creator.messages_count ?? 0
-            ),
+        messages:
+          Number(
+            creator.messages_count ?? 0
+          ),
 
-          emotes:
-            Number(
-              creator.emotes_count ?? 0
-            )
-        })
+        emotes:
+          Number(
+            creator.emotes_count ?? 0
+          )
+      })
   });
 }
