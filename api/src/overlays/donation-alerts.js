@@ -3066,6 +3066,20 @@ export async function uploadDonationAlertVariantMedia(
         );
     }
 
+    if (
+        mediaKind === "video" &&
+        new URL(request.url).searchParams.has("multipart")
+    ) {
+        return uploadJulotLargeVideo(
+            request,
+            env,
+            access,
+            variant,
+            rulePublicId,
+            variantPublicId
+        );
+    }
+
     let uploadedStorageKey = null;
 
     try {
@@ -3455,4 +3469,370 @@ export async function getPublicDonationAlertRules(
         );
 
     return rules;
+}
+
+/* =========================================================
+   VIDÉOS VOLUMINEUSES — JULOT UNIQUEMENT
+   ========================================================= */
+
+const JULOT_VIDEO_MAX_BYTES = 1024 ** 3;
+const JULOT_VIDEO_PART_BYTES = 16 * 1024 * 1024;
+
+async function largeVideoSigningKey(env) {
+    return crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(
+            "jevent-large-video-v1:" + env.TOKEN_PEPPER
+        ),
+        {
+            name: "HMAC",
+            hash: "SHA-256"
+        },
+        false,
+        ["sign", "verify"]
+    );
+}
+
+async function createLargeVideoToken(env, data) {
+    const payload = JSON.stringify(data);
+
+    const signature = await crypto.subtle.sign(
+        "HMAC",
+        await largeVideoSigningKey(env),
+        new TextEncoder().encode(payload)
+    );
+
+    const hex = Array.from(
+        new Uint8Array(signature),
+        byte => byte.toString(16).padStart(2, "0")
+    ).join("");
+
+    return payload + "~" + hex;
+}
+
+async function readLargeVideoToken(env, token) {
+    try {
+        if (
+            typeof token !== "string" ||
+            token.length > 4000
+        ) {
+            return null;
+        }
+
+        const separator = token.lastIndexOf("~");
+
+        if (separator < 0) {
+            return null;
+        }
+
+        const payload = token.slice(0, separator);
+        const hex = token.slice(separator + 1);
+
+        if (!/^[a-f0-9]{64}$/.test(hex)) {
+            return null;
+        }
+
+        const signature = Uint8Array.from(
+            hex.match(/.{2}/g),
+            value => parseInt(value, 16)
+        );
+
+        const valid = await crypto.subtle.verify(
+            "HMAC",
+            await largeVideoSigningKey(env),
+            signature,
+            new TextEncoder().encode(payload)
+        );
+
+        if (!valid) {
+            return null;
+        }
+
+        const data = JSON.parse(payload);
+
+        if (
+            !Number.isFinite(data.expiresAt) ||
+            data.expiresAt < Date.now()
+        ) {
+            return null;
+        }
+
+        return data;
+    } catch {
+        return null;
+    }
+}
+
+async function uploadJulotLargeVideo(
+    request,
+    env,
+    access,
+    variant,
+    rulePublicId,
+    variantPublicId
+) {
+    if (Number(access.creatorId) !== 1) {
+        return json(
+            {
+                error:
+                    "Les imports volumineux sont réservés à Julot."
+            },
+            403
+        );
+    }
+
+    if (!env.TOKEN_PEPPER) {
+        return json(
+            {
+                error:
+                    "Le secret TOKEN_PEPPER n’est pas configuré."
+            },
+            500
+        );
+    }
+
+    const url = new URL(request.url);
+    const action = url.searchParams.get("multipart");
+
+    if (action === "start") {
+        const body = await request.json().catch(() => null);
+
+        const size = Number(body?.size);
+
+        const contentType = String(
+            body?.contentType || ""
+        ).toLowerCase();
+
+        const extension = {
+            "video/webm": "webm",
+            "video/mp4": "mp4"
+        }[contentType];
+
+        if (
+            !extension ||
+            !Number.isSafeInteger(size) ||
+            size < 1 ||
+            size > JULOT_VIDEO_MAX_BYTES
+        ) {
+            return json(
+                {
+                    error:
+                        "Choisis une vidéo WebM ou MP4 de 1 Gio maximum."
+                },
+                400
+            );
+        }
+
+        const key = buildVariantMediaStorageKey({
+            creatorId: access.creatorId,
+            rulePublicId,
+            variantPublicId,
+            mediaKind: "video",
+            extension
+        });
+
+        const upload = await env.MEDIA.createMultipartUpload(
+            key,
+            {
+                httpMetadata: {
+                    contentType,
+                    cacheControl:
+                        "public, max-age=31536000, immutable"
+                },
+                customMetadata: {
+                    creatorId: String(access.creatorId),
+                    rulePublicId,
+                    variantPublicId,
+                    mediaKind: "video"
+                }
+            }
+        );
+
+        const token = await createLargeVideoToken(
+            env,
+            {
+                creatorId: Number(access.creatorId),
+                variantId: Number(variant.id),
+                key,
+                uploadId: upload.uploadId,
+                size,
+                expiresAt:
+                    Date.now() + 12 * 60 * 60 * 1000
+            }
+        );
+
+        return json({
+            token,
+            partSize: JULOT_VIDEO_PART_BYTES
+        });
+    }
+
+    const session = await readLargeVideoToken(
+        env,
+        url.searchParams.get("uploadToken")
+    );
+
+    if (
+        !session ||
+        session.creatorId !== Number(access.creatorId) ||
+        session.variantId !== Number(variant.id)
+    ) {
+        return json(
+            {
+                error:
+                    "L’autorisation d’import est invalide ou expirée."
+            },
+            403
+        );
+    }
+
+    const upload = env.MEDIA.resumeMultipartUpload(
+        session.key,
+        session.uploadId
+    );
+
+    const partCount = Math.ceil(
+        session.size / JULOT_VIDEO_PART_BYTES
+    );
+
+    if (action === "part") {
+        const partNumber = Number(
+            url.searchParams.get("partNumber")
+        );
+
+        if (
+            !Number.isInteger(partNumber) ||
+            partNumber < 1 ||
+            partNumber > partCount
+        ) {
+            return json(
+                { error: "Numéro de morceau invalide." },
+                400
+            );
+        }
+
+        const expectedSize = Math.min(
+            JULOT_VIDEO_PART_BYTES,
+            session.size -
+            (partNumber - 1) * JULOT_VIDEO_PART_BYTES
+        );
+
+        const contentLength = Number(
+            request.headers.get("Content-Length")
+        );
+
+        if (contentLength !== expectedSize) {
+            return json(
+                {
+                    error:
+                        "La taille du morceau envoyé est incorrecte."
+                },
+                400
+            );
+        }
+
+        const bytes = await request.arrayBuffer();
+
+        if (bytes.byteLength !== expectedSize) {
+            return json(
+                { error: "Morceau incomplet." },
+                400
+            );
+        }
+
+        const part = await upload.uploadPart(
+            partNumber,
+            bytes
+        );
+
+        return json({
+            partNumber: part.partNumber,
+            etag: part.etag
+        });
+    }
+
+    if (action === "abort") {
+        await upload.abort().catch(() => { });
+
+        return json({ success: true });
+    }
+
+    if (action === "complete") {
+        const body = await request.json().catch(() => null);
+        const parts = body?.parts;
+
+        if (
+            !Array.isArray(parts) ||
+            parts.length !== partCount ||
+            !parts.every(
+                (part, index) =>
+                    part?.partNumber === index + 1 &&
+                    typeof part.etag === "string" &&
+                    part.etag.length > 0
+            )
+        ) {
+            return json(
+                {
+                    error:
+                        "La liste des morceaux est incomplète."
+                },
+                400
+            );
+        }
+
+        // Permet de réessayer si la réponse précédente
+        // a été perdue après la finalisation dans R2.
+        let object = await env.MEDIA.head(session.key);
+
+        if (!object) {
+            object = await upload.complete(
+                parts.map(part => ({
+                    partNumber: part.partNumber,
+                    etag: part.etag
+                }))
+            );
+        }
+
+        if (object.size !== session.size) {
+            await env.MEDIA.delete(session.key);
+
+            return json(
+                {
+                    error:
+                        "La taille finale de la vidéo est incorrecte."
+                },
+                400
+            );
+        }
+
+        const oldStorageKey =
+            getVariantMediaStorageKey(
+                variant,
+                "video"
+            );
+
+        await updateVariantMediaKey(
+            env,
+            variant.id,
+            "video",
+            session.key
+        );
+
+        if (
+            oldStorageKey &&
+            oldStorageKey !== session.key
+        ) {
+            await deleteDonationAlertMediaIfUnused(
+                env,
+                oldStorageKey
+            ).catch(() => { });
+        }
+
+        return json({ success: true });
+    }
+
+    return json(
+        { error: "Opération d’import inconnue." },
+        400
+    );
 }
