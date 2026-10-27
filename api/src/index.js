@@ -233,6 +233,10 @@ import {
   getStreamDeckStats
 } from "./streamdeck/stats.js";
 
+import {
+  replayCreatorDonation
+} from "./creators/donation-replay.js";
+
 export {
   RaffleTimer
 } from "./raffles/timer.js";
@@ -1320,6 +1324,21 @@ async function route(request, env) {
       decodeURIComponent(
         nextInteractionEffectMatch[1]
       )
+    );
+  }
+
+  const replayDonationMatch = url.pathname.match(
+    /^\/api\/creator-panel\/donations\/(-?\d+)\/replay$/
+  );
+
+  if (
+    request.method === "POST" &&
+    replayDonationMatch
+  ) {
+    return replayCreatorDonation(
+      request,
+      env,
+      replayDonationMatch[1]
     );
   }
 
