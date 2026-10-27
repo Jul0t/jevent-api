@@ -229,6 +229,10 @@ import {
   createDonationOverlayTest
 } from "./overlays/donation-tests.js";
 
+import {
+  getStreamDeckStats
+} from "./streamdeck/stats.js";
+
 export {
   RaffleTimer
 } from "./raffles/timer.js";
@@ -1136,6 +1140,20 @@ async function route(request, env) {
       decodeURIComponent(
         rejectDescriptionMatch[1]
       )
+    );
+  }
+
+  /* ========================================================
+     STREAM DECK
+     ======================================================== */
+
+  if (
+    request.method === "GET" &&
+    url.pathname === "/api/streamdeck/stats"
+  ) {
+    return getStreamDeckStats(
+      request,
+      env
     );
   }
 
