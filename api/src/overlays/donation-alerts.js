@@ -1549,7 +1549,7 @@ function normalizeTextLayer(
                 source.delayMs,
                 0,
                 0,
-                60000
+                180000
             ),
 
         durationMs:
@@ -1557,7 +1557,7 @@ function normalizeTextLayer(
                 source.durationMs,
                 7000,
                 1000,
-                60000
+                180000
             ),
 
         animation:
@@ -1626,7 +1626,7 @@ function normalizeAlertLayout(value) {
             parsed.durationMs,
             6000,
             1000,
-            300000
+            180000
         );
 
     const sourceVideo =
@@ -1680,7 +1680,7 @@ function normalizeAlertLayout(value) {
                 sourceVideo.delayMs,
                 0,
                 0,
-                60000
+                180000
             ),
 
         durationMs:
@@ -1688,7 +1688,7 @@ function normalizeAlertLayout(value) {
                 sourceVideo.durationMs,
                 durationMs,
                 100,
-                60000
+                180000
             ),
 
         loop:
@@ -1771,7 +1771,7 @@ function normalizeAlertLayout(value) {
                             text.delayMs,
                             0,
                             0,
-                            60000
+                            180000
                         ),
 
                     durationMs:
@@ -1779,7 +1779,7 @@ function normalizeAlertLayout(value) {
                             text.durationMs,
                             durationMs,
                             100,
-                            60000
+                            180000
                         ),
 
                     enterAnimation:
